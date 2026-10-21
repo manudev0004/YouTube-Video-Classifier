@@ -6,12 +6,13 @@ Train a model on video titles, compare its predictions with held-out labels, and
 
 ![Python and scikit-learn](https://skillicons.dev/icons?i=python,sklearn&theme=light)
 
-<p>
-<a href="#try-it"><img src="assets/readme/nav-try-classifier.svg" width="304" height="72" alt="Click to open Try the Classifier"></a>
-<a href="data/README.md"><img src="assets/readme/nav-training-data.svg" width="304" height="72" alt="Click to open Training Data Guide"></a>
-<a href="docs/workflow.md"><img src="assets/readme/nav-technical-workflow.svg" width="304" height="72" alt="Click to open Technical Workflow"></a>
-<a href="docs/historical-results.md"><img src="assets/readme/nav-historical-results.svg" width="304" height="72" alt="Click to open Historical Results"></a>
-<a href="docs/notebook-analysis.md"><img src="assets/readme/nav-analysis-charts.svg" width="304" height="72" alt="Click to open Analysis Charts"></a>
+<p align="center">
+<a href="#try-it"><img src="assets/readme/nav-try-classifier.svg" width="272" height="73" alt="Click to open Try the Classifier"></a>
+<a href="data/README.md"><img src="assets/readme/nav-training-data.svg" width="272" height="73" alt="Click to open Training Data Guide"></a>
+<a href="docs/workflow.md"><img src="assets/readme/nav-technical-workflow.svg" width="272" height="73" alt="Click to open Technical Workflow"></a>
+<br>
+<a href="docs/historical-results.md"><img src="assets/readme/nav-historical-results.svg" width="272" height="73" alt="Click to open Historical Results"></a>
+<a href="docs/notebook-analysis.md"><img src="assets/readme/nav-analysis-charts.svg" width="272" height="73" alt="Click to open Analysis Charts"></a>
 </p>
 
 ## Project Summary

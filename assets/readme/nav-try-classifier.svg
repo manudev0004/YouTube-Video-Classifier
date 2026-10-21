@@ -1,11 +1,13 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="304" height="72" viewBox="0 0 304 72" role="img" aria-labelledby="title description">
+<svg xmlns="http://www.w3.org/2000/svg" width="328" height="88" viewBox="0 0 328 88" role="img" aria-labelledby="title description">
   <title id="title">Try the Classifier</title>
   <desc id="description">Clickable navigation link: Try the Classifier.</desc>
+  <g id="button-with-gutter" transform="translate(12 12)">
   <rect x="0.75" y="0.75" width="302.5" height="62.5" rx="9" fill="#0969da" stroke="#0550ae" stroke-width="1.5"/>
   <g font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" fill="#ffffff">
-    <text x="17" y="27" font-size="17" font-weight="650">Try the Classifier</text>
-    <text x="17" y="48" font-size="11.5" font-weight="600" letter-spacing="1.1">CLICK TO JUMP</text>
+    <text x="17" y="27" font-size="21" font-weight="650">Try the Classifier</text>
+    <text x="17" y="48" font-size="14" font-weight="600" letter-spacing="1.1">CLICK TO JUMP</text>
   </g>
   <circle cx="275" cy="32" r="15" fill="#0550ae"/>
   <path d="M268 32h14m-5-5 5 5-5 5" fill="none" stroke="#ffffff" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
 </svg>
