@@ -1,9 +1,10 @@
 .venv/
 __pycache__/
-.ipynb_checkpoints/
+*.pyc
 .env
 artifacts/
-data/*.csv
-*.joblib
-*.pickle
-*.model
+.ipynb_checkpoints/
+
+# Keep unpublished training datasets local.
+data/*
+!data/README.md

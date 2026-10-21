@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="510" viewBox="0 0 1200 510" role="img" aria-labelledby="title description">
+  <title id="title">YouTube Video Classifier: from title text to category patterns</title>
+  <desc id="description">Video titles become TF-IDF features, then pass to a classifier. The project supports training, evaluation, saved pipelines and later predictions.</desc>
+  <rect width="1200" height="510" rx="20" fill="#11151c"/>
+  <g font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif">
+    <text x="64" y="60" font-size="25" letter-spacing="3" fill="#b8c3d2">TEXT CLASSIFICATION / PYTHON</text>
+    <text x="60" y="153" font-size="84" font-weight="750" fill="#f6f8fc">YouTube Video</text>
+    <text x="60" y="242" font-size="84" font-weight="750" fill="#ff465b">Classifier</text>
+    <text x="64" y="297" font-size="32" fill="#cbd5e1">Learn category patterns from video titles.</text>
+    <g id="classification-flow" font-size="42" font-weight="600" text-anchor="middle">
+      <rect x="64" y="336" width="296" height="91" rx="8" fill="#202a37"/>
+      <text x="212" y="395" fill="#f6f8fc">Video title</text>
+      <path d="M377 381h53m-13-13 13 13-13 13" fill="none" stroke="#ff465b" stroke-width="5"/>
+      <rect x="452" y="336" width="296" height="91" rx="8" fill="#202a37"/>
+      <text x="600" y="395" fill="#f6f8fc">TF-IDF</text>
+      <path d="M765 381h53m-13-13 13 13-13 13" fill="none" stroke="#ff465b" stroke-width="5"/>
+      <rect x="840" y="336" width="296" height="91" rx="8" fill="#ff465b"/>
+      <text x="988" y="395" fill="#11151c">Classifier</text>
+    </g>
+    <text x="64" y="476" font-size="25" fill="#b8c3d2">TRAIN / EVALUATE / SAVE / PREDICT</text>
+  </g>
+</svg>

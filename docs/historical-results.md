@@ -1,10 +1,10 @@
 # Historical Results and Evaluation Limits
 
-[Overview](../README.md) · [Original training notebook](../ML_AI_Train_Test_Code.ipynb) · [Archived script](../archive/predict-original.py.txt)
+[Project overview](../README.md) · [Current workflow](workflow.md) · [Original training notebook](../ML_AI_Train_Test_Code.ipynb)
 
-The original training notebook preserves a 4,218-row experiment with 2,384 negative and 1,834 positive proxy labels. Its saved outputs report:
+The original notebook preserves an experiment with 4,218 rows: 2,384 negative and 1,834 positive category-proxy labels. Its saved outputs record:
 
-| Model | Recorded historical accuracy |
+| Model | Historical accuracy |
 |---|---:|
 | Naive Bayes | 89.57% |
 | Random Forest | 91.71% |
@@ -13,26 +13,18 @@ The original training notebook preserves a 4,218-row experiment with 2,384 negat
 | Decision Tree | 91.11% |
 | XGBoost | 91.23% |
 
-These are historical notebook outputs. The original dataset is absent, so the results have not been reproduced in this revision.
+The original dataset is absent, so these results have not been reproduced in the current repository.
 
-## Why these are not the new pipeline's benchmark
+## What Limits the Comparison
 
-The original experiment fits TF-IDF on all titles before creating the 80/20 split. This exposes preprocessing to test vocabulary and IDF statistics. It also has no fixed split/model seed or exact-title deduplication. The recorded result is therefore not a clean, reproducible held-out estimate.
+TF-IDF was fitted on all titles before the 80/20 split. This exposes preprocessing to test vocabulary and IDF statistics. The original procedure also lacks a fixed split/model seed and exact-title deduplication, so the recorded scores do not provide a clean, reproducible held-out estimate.
 
-The binary target is **Category_ID 27 or 28**, rather than a human annotation of educational quality. Some saved input examples appear to include extra keyword text in the Title field; original input cleanliness cannot be established without the CSV. There is no transcript, audio or video-content analysis in the executable classifier.
+Labels come from YouTube categories 27 and 28. They measure a category proxy rather than human assessments of educational value. Some saved examples appear to include extra keyword text in the title; input cleanliness cannot be established without the CSV.
 
-The archived script also trains separate multiclass category models. Those are a different task from the binary benchmark. Its saved `premodel.model` is the binary XGBoost estimator, not the Random Forest associated with 91.7%.
+The historical work also explores multiclass category prediction, which is a separate task. The earlier script's binary `premodel.model` artifact referred to XGBoost, while the 91.71% result belongs to Random Forest. Neither that artifact nor the removed script is needed for the current CLI.
 
-## What changed
+## The Current Evaluation Path
 
-The executable `predict.py` now handles the binary proxy task explicitly. It validates and deduplicates raw titles, splits them before preprocessing, fits a pipeline on training data, and saves the vectoriser and estimator together. Fixed seeds, a majority baseline and metrics metadata make new runs inspectable.
+`predict.py` validates and deduplicates raw titles, splits before preprocessing and saves the fitted vectoriser and estimator together. Fixed seeds, a majority baseline and metrics metadata make new runs easier to inspect. The synthetic sample checks that this workflow runs; a real dataset is needed to evaluate model quality.
 
-The included `examples/demo.csv` is synthetic and tests the workflow only. Its scores must not be presented as project accuracy or used on a resume. New meaningful results require a real, appropriately licensed dataset and evaluation under the corrected procedure.
-
-## Further evaluation worth doing
-
-- Separate related videos/channels when measuring generalisation beyond familiar channels.
-- Review label quality with human annotations if the desired task is educational relevance.
-- Check class balance, precision/recall and errors, rather than accuracy alone.
-- Use a validation set or cross-validation for model selection and reserve a final test set.
-- Record the data revision, cleaning decisions, channel/video grouping and dependency versions.
+A meaningful new result needs a real dataset with provenance and permission to use it. Separate related videos or channels where possible, review label quality, inspect precision/recall and error cases, and reserve a final test set after model selection. Record the data revision and cleaning decisions with the results.
