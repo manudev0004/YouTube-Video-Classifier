@@ -1,234 +1,163 @@
+"""Train or run a title-based classifier with category-derived proxy labels."""
 
-import numpy as np
-import pandas as pd
-import collections
-from sklearn.feature_extraction.text import CountVectorizer
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score
-from sklearn.feature_extraction.text import TfidfVectorizer
+import argparse
+import hashlib
+import json
+from pathlib import Path
+import sys
 
-from sklearn.naive_bayes import MultinomialNB
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.svm import SVC
-from sklearn.neighbors import KNeighborsClassifier
-from sklearn.tree import DecisionTreeClassifier
-from xgboost import XGBClassifier
 
-category_json = pd.read_json("C:/Users/manud/Documents/Youtube-Video-Analysis-Classification-and-Prediction-master/Dataset/category_id.JSON")
-category_json.head(5)
-category_json.columns
+def load_dataset(path):
+    import pandas as pd
 
-category_dict = [{'id': item['id'], 'title': item['snippet']['title']} for item in category_json['items']]
-category_dict
+    frame = pd.read_csv(path)
+    required = {"Title", "Category_ID"}
+    if not required.issubset(frame.columns):
+        raise ValueError("CSV must contain Title and Category_ID columns.")
+    if frame["Title"].isna().any():
+        raise ValueError("Every row needs a non-empty Title.")
+    frame["Title"] = frame["Title"].astype(str).str.strip()
+    if frame["Title"].eq("").any():
+        raise ValueError("Every row needs a non-empty Title.")
+    category = pd.to_numeric(frame["Category_ID"], errors="raise")
+    if category.isna().any() or (category % 1 != 0).any():
+        raise ValueError("Category_ID must contain integer YouTube category IDs.")
+    frame["label"] = category.astype(int).isin([27, 28]).astype(int)
+    frame["title_key"] = frame["Title"].str.casefold().str.split().str.join(" ")
+    if frame.groupby("title_key")["label"].nunique().gt(1).any():
+        raise ValueError("A duplicate title has conflicting proxy labels; resolve it first.")
+    before = len(frame)
+    frame = frame.drop_duplicates("title_key").reset_index(drop=True)
+    counts = frame["label"].value_counts()
+    if len(counts) != 2 or counts.min() < 2:
+        raise ValueError("Need both proxy classes, with at least two unique titles each.")
+    return frame, before - len(frame)
 
-categories = pd.read_csv("C:/Users/manud/Documents/Youtube-Video-Analysis-Classification-and-Prediction-master/Dataset/categories.csv", header=0)
-categories.head(20)
 
-categories['Outcome'] = categories['Category'].str.contains("Non-Educational")
+def make_pipeline(name, seed):
+    from sklearn.ensemble import RandomForestClassifier
+    from sklearn.feature_extraction.text import TfidfVectorizer
+    from sklearn.naive_bayes import MultinomialNB
+    from sklearn.neighbors import KNeighborsClassifier
+    from sklearn.pipeline import Pipeline
+    from sklearn.svm import SVC
+    from sklearn.tree import DecisionTreeClassifier
 
-categories['Outcome'].replace({True:0,False:1}, inplace=True)
+    models = {
+        "random-forest": lambda: RandomForestClassifier(n_estimators=200, random_state=seed, n_jobs=-1),
+        "naive-bayes": MultinomialNB,
+        "svm": SVC,
+        "knn": KNeighborsClassifier,
+        "decision-tree": lambda: DecisionTreeClassifier(random_state=seed),
+    }
+    if name == "xgboost":
+        try:
+            from xgboost import XGBClassifier
+        except ImportError as exc:
+            raise ValueError("For XGBoost, install requirements-optional.txt first.") from exc
+        model = XGBClassifier(random_state=seed, eval_metric="logloss", n_jobs=1)
+    else:
+        model = models[name]()
+    return Pipeline([("tfidf", TfidfVectorizer()), ("classifier", model)])
 
-new_video = pd.read_csv("C:/Users/manud/Documents/Youtube-Video-Analysis-Classification-and-Prediction-master/Dataset/mydata.csv", header=0)
-new_video.head(5)
 
-new_video['Outcome'] = (new_video['Category_ID'] == 27) | (new_video['Category_ID'] == 28)
+def train(args):
+    import joblib
+    import sklearn
+    from sklearn.dummy import DummyClassifier
+    from sklearn.metrics import accuracy_score, balanced_accuracy_score, confusion_matrix
+    from sklearn.metrics import precision_recall_fscore_support
+    from sklearn.model_selection import train_test_split
 
-new_video['Outcome'].replace({True:1, False:0}, inplace=True)
+    if not 0 < args.test_size < 1:
+        raise ValueError("test-size must be between 0 and 1.")
+    frame, duplicate_count = load_dataset(args.data)
+    # Split raw titles first: the vectorizer must never learn the test vocabulary.
+    x_train, x_test, y_train, y_test = train_test_split(
+        frame["Title"], frame["label"], test_size=args.test_size,
+        random_state=args.seed, stratify=frame["label"],
+    )
+    pipeline = make_pipeline(args.model, args.seed)
+    pipeline.fit(x_train, y_train)
+    predicted = pipeline.predict(x_test)
+    baseline = DummyClassifier(strategy="most_frequent").fit(x_train.to_frame(), y_train)
+    baseline_predictions = baseline.predict(x_test.to_frame())
+    precision, recall, f1, _ = precision_recall_fscore_support(
+        y_test, predicted, average="binary", zero_division=0,
+    )
+    synthetic = (
+        "Data_Source" in frame and
+        frame["Data_Source"].fillna("").astype(str).str.lower().eq("synthetic").all()
+    )
+    metrics = {
+        "task": "binary category proxy from video titles",
+        "positive_categories": [27, 28],
+        "model": args.model,
+        "seed": args.seed,
+        "test_fraction": args.test_size,
+        "train_rows": len(x_train),
+        "test_rows": len(x_test),
+        "train_label_counts": {str(k): int(v) for k, v in y_train.value_counts().items()},
+        "test_label_counts": {str(k): int(v) for k, v in y_test.value_counts().items()},
+        "duplicate_titles_removed": duplicate_count,
+        "accuracy": float(accuracy_score(y_test, predicted)),
+        "balanced_accuracy": float(balanced_accuracy_score(y_test, predicted)),
+        "precision": float(precision), "recall": float(recall), "f1": float(f1),
+        "confusion_matrix_labels": [0, 1],
+        "confusion_matrix": confusion_matrix(y_test, predicted, labels=[0, 1]).tolist(),
+        "majority_baseline_accuracy": float(accuracy_score(y_test, baseline_predictions)),
+        "synthetic_demo": bool(synthetic),
+        "dataset_sha256": hashlib.sha256(args.data.read_bytes()).hexdigest(),
+        "scikit_learn_version": sklearn.__version__,
+        "limitations": [
+            "Labels come from YouTube categories, not human judgments of educational quality.",
+            "Exact normalized title duplicates are removed; related videos/channels may still cross the split.",
+            "This is one exploratory split, not independent production validation.",
+        ],
+    }
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+    joblib.dump(pipeline, args.output_dir / "pipeline.joblib")
+    (args.output_dir / "metrics.json").write_text(json.dumps(metrics, indent=2) + "\n")
+    print(json.dumps(metrics, indent=2))
+    if synthetic:
+        print("Synthetic demonstration only: these scores are not project benchmark results.", file=sys.stderr)
 
-new_video['Outcome'].value_counts()
 
-new_video
+def predict(args):
+    import joblib
 
-new_video.loc[2316,'Title']
+    # Only load a model artifact you created or trust; joblib deserializes Python objects.
+    pipeline = joblib.load(args.artifact)
+    if any(not title.strip() for title in args.title):
+        raise ValueError("Prediction titles must be non-empty.")
+    labels = pipeline.predict(args.title)
+    rows = [
+        {"title": title, "label": int(label), "category_proxy": "education-or-science" if label else "other"}
+        for title, label in zip(args.title, labels)
+    ]
+    print(json.dumps(rows, indent=2))
 
-from sklearn.feature_extraction.text import TfidfVectorizer
-vector = TfidfVectorizer(min_df=1)
-counts = vector.fit_transform(new_video['Title'].values)
 
-vector.get_feature_names_out()
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    commands = parser.add_subparsers(dest="command", required=True)
+    training = commands.add_parser("train", help="Validate CSV, evaluate a split and save a pipeline")
+    training.add_argument("--data", type=Path, required=True)
+    training.add_argument("--output-dir", type=Path, default=Path("artifacts"))
+    training.add_argument("--seed", type=int, default=42)
+    training.add_argument("--test-size", type=float, default=0.2)
+    training.add_argument("--model", choices=["random-forest", "naive-bayes", "svm", "knn", "decision-tree", "xgboost"], default="random-forest")
+    training.set_defaults(run=train)
+    prediction = commands.add_parser("predict", help="Predict one or more titles using a saved pipeline")
+    prediction.add_argument("--artifact", type=Path, required=True)
+    prediction.add_argument("--title", action="append", required=True)
+    prediction.set_defaults(run=predict)
+    args = parser.parse_args(argv)
+    try:
+        args.run(args)
+    except (ValueError, OSError, ImportError, KeyError) as exc:
+        parser.exit(2, f"error: {exc}\n")
 
-NB_Model = MultinomialNB()
-RFC_Model = RandomForestClassifier()
-SVC_Model = SVC()
-KNC_Model = KNeighborsClassifier()
-DTC_Model = DecisionTreeClassifier()
 
-output = new_video['Category_ID'].values
-
-NB_Model.fit(counts,output)
-
-RFC_Model.fit(counts,output)
-
-SVC_Model.fit(counts,output)
-
-KNC_Model.fit(counts,output)
-
-DTC_Model.fit(counts,output)
-
-X = counts
-Y = new_video['Outcome']
-X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size = 0.2)
-
-NBtest = MultinomialNB().fit(X_train,Y_train)
-nb_predictions = NBtest.predict(X_test)
-acc_nb = NBtest.score(X_test, Y_test)
-print('The Naive Bayes Algorithm has an accuracy of', acc_nb)
-
-RFCtest = RandomForestClassifier().fit(X_train,Y_train)
-rfc_predictions = RFCtest.predict(X_test)
-acc_rfc = RFCtest.score(X_test, Y_test)
-print('The Random Forest Algorithm has an accuracy of', acc_rfc)
-
-SVCtest = SVC().fit(X_train,Y_train)
-svc_predictions = SVCtest.predict(X_test)
-acc_svc = SVCtest.score(X_test, Y_test)
-print('The Support Vector Algorithm has an accuracy of', acc_svc)
-
-KNCtest = KNeighborsClassifier().fit(X_train,Y_train)
-knc_predictions = KNCtest.predict(X_test)
-acc_knc = KNCtest.score(X_test, Y_test)
-print('The K Neighbors Algorithm has an accuracy of', acc_knc)
-
-DTCtest = DecisionTreeClassifier().fit(X_train,Y_train)
-dtc_predictions = DTCtest.predict(X_test)
-acc_dtc = DTCtest.score(X_test, Y_test)
-print('The Decision Tree Algorithm has an accuracy of', acc_dtc)
-
-xgb_clf = XGBClassifier()
-xgb_clf.fit(X_train, Y_train)
-print('The XGBoost has an accuracy of', xgb_clf.score(X_test, Y_test))
-
-Titles = ["The Riddle That Seems Impossible Even If You Know The Answer"]
-
-Titles_counts = vector.transform(Titles)
-
-PredictNB = NB_Model.predict(Titles_counts)
-PredictNB
-
-PredictRFC = RFC_Model.predict(Titles_counts)
-PredictRFC
-
-PredictSVC = SVC_Model.predict(Titles_counts)
-PredictSVC
-
-PredictKNC = KNC_Model.predict(Titles_counts)
-PredictKNC
-
-PredictDTC = DTC_Model.predict(Titles_counts)
-PredictDTC
-
-CategoryNamesListNB = []
-for Category_ID in PredictNB:
-    MatchingCategoriesNB = [x for x in category_dict if x["id"] == str(Category_ID)]
-    if MatchingCategoriesNB:
-        CategoryNamesListNB.append(MatchingCategoriesNB[0]["title"])
-
-CategoryNamesListRFC = []
-for Category_ID in PredictRFC:
-    MatchingCategoriesRFC = [x for x in category_dict if x["id"] == str(Category_ID)]
-    if MatchingCategoriesRFC:
-        CategoryNamesListRFC.append(MatchingCategoriesRFC[0]["title"])
-
-CategoryNamesListSVC = []
-for Category_ID in PredictSVC:
-    MatchingCategoriesSVC = [x for x in category_dict if x["id"] == str(Category_ID)]
-    if MatchingCategoriesSVC:
-        CategoryNamesListSVC.append(MatchingCategoriesSVC[0]["title"])
-
-CategoryNamesListKNC = []
-for Category_ID in PredictKNC:
-    MatchingCategoriesKNC = [x for x in category_dict if x["id"] == str(Category_ID)]
-    if MatchingCategoriesKNC:
-        CategoryNamesListKNC.append(MatchingCategoriesKNC[0]["title"])
-
-CategoryNamesListDTC = []
-for Category_ID in PredictDTC:
-    MatchingCategoriesDTC = [x for x in category_dict if x["id"] == str(Category_ID)]
-    if MatchingCategoriesDTC:
-        CategoryNamesListDTC.append(MatchingCategoriesDTC[0]["title"])
-
-TitleDataFrameNB = []
-for i in range(0, len(Titles)):
-    TitleToCategoriesNB = {'Title': Titles[i],  'Category': CategoryNamesListNB[i]}
-    TitleDataFrameNB.append(TitleToCategoriesNB)
-
-TitleDataFrameRFC = []
-for i in range(0, len(Titles)):
-    TitleToCategoriesRFC = {'Title': Titles[i],  'Category': CategoryNamesListRFC[i]}
-    TitleDataFrameRFC.append(TitleToCategoriesRFC)
-
-TitleDataFrameSVC = []
-for i in range(0, len(Titles)):
-    TitleToCategoriesSVC = {'Title': Titles[i],  'Category': CategoryNamesListSVC[i]}
-    TitleDataFrameSVC.append(TitleToCategoriesSVC)
-
-TitleDataFrameKNC = []
-for i in range(0, len(Titles)):
-    TitleToCategoriesKNC = {'Title': Titles[i],  'Category': CategoryNamesListKNC[i]}
-    TitleDataFrameKNC.append(TitleToCategoriesKNC)
-
-TitleDataFrameDTC = []
-for i in range(0, len(Titles)):
-    TitleToCategoriesDTC = {'Title': Titles[i],  'Category': CategoryNamesListDTC[i]}
-    TitleDataFrameDTC.append(TitleToCategoriesDTC)
-
-PredictDFnb = pd.DataFrame(PredictNB)
-TitleDFnb = pd.DataFrame(TitleDataFrameNB)
-PreFinalDFnb = pd.concat([PredictDFnb, TitleDFnb], axis=1)
-PreFinalDFnb.columns = (['Categ_ID', 'Predicted Category', 'Hypothetical Video Title'])
-FinalDFnb = PreFinalDFnb.drop(['Categ_ID'],axis=1)
-colsNB = FinalDFnb.columns.tolist()
-colsNB = colsNB[-1:] + colsNB[:-1]
-FinalDFnb= FinalDFnb[colsNB]
-
-PredictDFrfc = pd.DataFrame(PredictRFC)
-TitleDFrfc = pd.DataFrame(TitleDataFrameRFC)
-PreFinalDFrfc = pd.concat([PredictDFrfc, TitleDFrfc], axis=1)
-PreFinalDFrfc.columns = (['Categ_ID', 'Predicted Category', 'Hypothetical Video Title'])
-FinalDFrfc = PreFinalDFrfc.drop(['Categ_ID'],axis=1)
-colsRFC = FinalDFrfc.columns.tolist()
-colsRFC = colsRFC[-1:] + colsRFC[:-1]
-FinalDFrfc= FinalDFrfc[colsRFC]
-
-PredictDFsvc = pd.DataFrame(PredictSVC)
-TitleDFsvc = pd.DataFrame(TitleDataFrameSVC)
-PreFinalDFsvc = pd.concat([PredictDFsvc, TitleDFsvc], axis=1)
-PreFinalDFsvc.columns = (['Categ_ID', 'Predicted Category', 'Hypothetical Video Title'])
-FinalDFsvc = PreFinalDFsvc.drop(['Categ_ID'],axis=1)
-colsSVC = FinalDFsvc.columns.tolist()
-colsSVC = colsSVC[-1:] + colsSVC[:-1]
-FinalDFsvc= FinalDFsvc[colsSVC]
-
-PredictDFknc = pd.DataFrame(PredictKNC)
-TitleDFknc = pd.DataFrame(TitleDataFrameKNC)
-PreFinalDFknc = pd.concat([PredictDFknc, TitleDFknc], axis=1)
-PreFinalDFknc.columns = (['Categ_ID', 'Predicted Category', 'Hypothetical Video Title'])
-FinalDFknc = PreFinalDFknc.drop(['Categ_ID'],axis=1)
-colsKNC = FinalDFknc.columns.tolist()
-colsKNC = colsKNC[-1:] + colsKNC[:-1]
-FinalDFknc= FinalDFknc[colsKNC]
-
-PredictDFdtc = pd.DataFrame(PredictDTC)
-TitleDFdtc = pd.DataFrame(TitleDataFrameDTC)
-PreFinalDFdtc = pd.concat([PredictDFdtc, TitleDFdtc], axis=1)
-PreFinalDFdtc.columns = (['Categ_ID', 'Predicted Category', 'Hypothetical Video Title'])
-FinalDFdtc = PreFinalDFdtc.drop(['Categ_ID'],axis=1)
-colsDTC = FinalDFdtc.columns.tolist()
-colsDTC = colsDTC[-1:] + colsDTC[:-1]
-FinalDFdtc= FinalDFdtc[colsDTC]
-
-import pickle
-
-vec_file = 'vectorizer.pickle'
-pickle.dump(vector, open(vec_file, 'wb'))
-
-pickle.dump(xgb_clf, open('premodel.model', 'wb'))
-
-vectorizer = pickle.load(open('C:/Users/manud/Documents/MyYtServer/models/vectorizer.pickle', 'rb'))
-model = pickle.load(open('C:/Users/manud/Documents/MyYtServer/models/premodel.model', 'rb'))
-
-Titles = ["Why this kolaveri di  ","LIFE IS TOUGH (Official Video) - Guru Mann Hindi Song | Cinematic Bollywood || Rubbal GTR"
-         ,"The Riddle That Seems Impossible Even If You Know The Answer","How Electricity Actually Works",
-         "Future Computers Will Be Radically Different (Analog Computing)","The Man Who Accidentally Killed The Most People In History",
-         "Why can't you go faster than light?","One of the most counterintuitive facts of our universe is that you can’t go faster than the speed of light.  From this single observation arise all of the mind-bending behaviors of special relativity.  But why is this so?  In this in-depth video, Fermilab’s Dr. Don Lincoln explains the real reason that you can’t go faster than the speed of light.  It will blow your mind"]
-print(model.predict(vectorizer.transform(Titles)))
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,6 @@
+-r requirements.txt
+xgboost>=2,<4
+jupyterlab>=4,<5
+google-api-python-client>=2,<3
+matplotlib>=3.8,<4
+seaborn>=0.13,<1
